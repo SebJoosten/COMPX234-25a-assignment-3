@@ -4,96 +4,74 @@ import java.net.*;
 public class Server {
 
     public static void main(String[] args) {
+        Server server = new Server();
+        server.runServer(args);
+    }
+
+    public void runServer(String[] args) {
         DatagramSocket socket = null;
         int port = 51234;
 
-        while (true) { // Main while loop keeps re trying
-
-            try {       // Start listening
+        while (true) {              // Main while loop keeps re trying
+            try {                   // Start listening and set timeout and variable
                 socket = new DatagramSocket(port);
                 socket.setSoTimeout(10000);
-
-                // Set receive variable 2042 should be enough for 1000 bytes and protocol code
                 byte[] receiveData = new byte[2048];
 
                 while (true) {
+                    DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+                    socket.receive(receivePacket);
 
-                    //wait for a packet
-                    try {
-                        DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-                        socket.receive(receivePacket);
+                    // Convert a message to string > parse and respond
+                    String message = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                    String response = "ERR NOT_PARSEABLE";
+                    String[] parts;
+                    if (message.split(" ", 2).length == 2) {
+                        parts = message.split(" ", 2);
+                        String command = parts[0];
+                        String data = parts.length > 1 ? parts[1] : "";
 
+                        // Check for command
+                        if (command.equals("DOWNLOAD")) {
+                            if (!data.isEmpty()) {
 
-                        // Get data out of a packet and load it in to variables for later > set-up response
-                        String message = new String(receivePacket.getData(), 0, receivePacket.getLength());
-                        InetAddress clientAddress = receivePacket.getAddress();
-                        int clientPort = receivePacket.getPort();
-                        String response = "ERR NOT_PARSEABLE";  // Default IE we dont know whats going on
+                                //************ VVV REPLACE CODE VVV ************
+                                // Replace with file name check
+                                String fileName = "temoprary";
+                                System.out.println(data);
+                                boolean fileExists = true; // Will work this out later placeholder
+                                //************ ^^^ REPLACE CODE ^^^ ************
 
-                        // Split and check message
-                        String[] parts;
-                        if (message.split(" ", 2).length == 2) {
-                            parts = message.split(" ", 2);
-                            String command = parts[0];
-                            String data = parts.length > 1 ? parts[1] : "";
-
-                            // Check for command
-                            if (command.equals("DOWNLOAD")) {
-                                if (!data.isEmpty()) {
-
+                                if (fileExists) {
                                     //************ VVV REPLACE CODE VVV ************
-                                    // Replace with file name check
-                                    String fileName = "temoprary";
-                                    System.out.println(data);
-                                    boolean fileExists = true; // Will work this out later placeholder
+                                    // Replace with file details
+                                    // Get file details
+                                    //File file = new File("example.txt");
+                                    //long fileSize = file.length();
+                                    long fileSize = 123456;
                                     //************ ^^^ REPLACE CODE ^^^ ************
 
-                                    if (fileExists) {
-
-                                        //************ VVV REPLACE CODE VVV ************
-                                        // Replace with file details
-                                        // Get file details
-                                        //File file = new File("example.txt");
-                                        //long fileSize = file.length();
-                                        long fileSize = 123456;
-                                        //************ ^^^ REPLACE CODE ^^^ ************
-
-                                        int freePort = portFinderUDPPort();
-
+                                    int freePort = portFinderUDPPort();
+                                    if (freePort != -1) {
                                         response = "OK " + fileName + " SIZE " + fileSize + " PORT " + freePort;
-
-                                        DatagramPacket sendPacket = new DatagramPacket(response.getBytes(), response.length(), clientAddress, clientPort);
-                                        socket.send(sendPacket);
-                                        System.out.println("SUCCESS: " + fileName + " Sending to port " + freePort);
-
-                                        // SPIN off new thread
-
-                                        continue; // Start loop again
+                                        Thread thread = new Thread(new FileMoverTask(fileName, freePort));
+                                        thread.start();
                                     }
                                 }
-                                response = "ERR NOT_FOUND"; // File not found OR file name not parsable
-                            } // if DOWNLOAD
-                        } // if split
+                            } else response = "ERR NOT_FOUND";
+                        } // Command wrong response = "ERR NOT_PARSEABLE"
+                    } // Split wrong response = "ERR NOT_PARSEABLE"
 
-                        // Prep and send a return packet
-                        System.out.println("ERROR: download request: " + response);
-                        DatagramPacket sendPacket = new DatagramPacket(response.getBytes(), response.length(), clientAddress, clientPort);
-                        socket.send(sendPacket);
-
-                    }catch (SocketTimeoutException e) {
-                        System.out.println("TIMEOUT: No packet received in 10 seconds.");
-                    }
+                    // Prep and send a return packet
+                    System.out.println("Server: " + response + " : " + message);
+                    DatagramPacket sendPacket = new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort());
+                    socket.send(sendPacket);
 
                 } // Main loop end
-            } catch (SocketException e) {
-                System.out.println("ERROR: SocketException: " + e.getMessage());
             } catch (IOException e) {
-                System.out.println("ERROR: IOException: " + e.getMessage());
+                System.out.println("ERROR: " + e.getMessage());
             } finally {
-                if (socket != null && !socket.isClosed()) {
-                    socket.close();
-                    socket = null;
-                }
+                if (socket != null && !socket.isClosed()) socket.close();
             } // sub loop
         } // main loop
     }
@@ -101,10 +79,9 @@ public class Server {
 
     /**
      * Free Port Finder quickly looks for a free port.
-     * Use the port immediately away before its taken by something else
      * @return - A free port hopefully
      */
-    public static int portFinderUDPPort() {
+    public int portFinderUDPPort() {
         for (int port = 50001; port <= 51000; port++) {
             try (DatagramSocket socket = new DatagramSocket(port)) {
                 return port;
@@ -113,4 +90,55 @@ public class Server {
         return -1; // Base case no free port
     }
 
+
+    /**
+     * File mover thread
+     * Used to spin off a new thread for file transfur
+     */
+    private class FileMoverTask implements Runnable {
+        private int port;
+        private String fileName , ID;
+        private byte[] receiveData = new byte[2048];
+        private DatagramSocket socket = null;
+
+        public FileMoverTask(String fileName, int port) {
+            this.fileName = fileName;
+            this.port = port;
+            this.ID = "FileMoverTask " + fileName + " port: " + port;
+        }
+
+        @Override
+        public void run() {
+            System.out.println("LOG: " + ID + " STARTED" );
+
+            try  {
+                socket = new DatagramSocket(port);
+                socket.setSoTimeout(10000);
+
+                while (true) {
+
+                    //************ VVV REPLACE CODE VVV ************
+                    DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+                    socket.receive(receivePacket);
+
+                    // Check packet content
+                    // generate return packet
+                    String response = "testing 123";
+
+                    // Send a packet
+                    DatagramPacket sendPacket = new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort());
+                    socket.send(sendPacket);
+
+                    //************ ^^^ REPLACE CODE ^^^ ************
+
+                }
+
+            } catch (IOException e) {
+                System.out.println("ERROR: " + ID + e.getMessage());
+            }finally {
+                if (!socket.isClosed()) socket.close();
+            }
+            System.out.println("LOG: " + ID + " CLOSED" );
+        }
+    }
 }
