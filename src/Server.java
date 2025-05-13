@@ -56,7 +56,7 @@ public class Server {
                                         response = "OK " + fileName + " SIZE " + fileSize + " PORT " + freePort;
                                         Thread thread = new Thread(new FileMoverTask(fileName, freePort));
                                         thread.start();
-                                    }
+                                    } else response = "ERR NO_FREE_PORT";
                                 }
                             } else response = "ERR NOT_FOUND";
                         } // Command wrong response = "ERR NOT_PARSEABLE"
@@ -70,12 +70,9 @@ public class Server {
                 } // Main loop end
             } catch (IOException e) {
                 System.out.println("ERROR: " + e.getMessage());
-            } finally {
-                if (socket != null && !socket.isClosed()) socket.close();
-            } // sub loop
+            } // Sub loop
         } // main loop
     }
-
 
     /**
      * Free Port Finder quickly looks for a free port.
@@ -90,17 +87,20 @@ public class Server {
         return -1; // Base case no free port
     }
 
-
     /**
-     * File mover thread
-     * Used to spin off a new thread for file transfur
+     * File mover thread class used for spinning off a sending thread
      */
     private class FileMoverTask implements Runnable {
         private int port;
-        private String fileName , ID;
+        private String fileName , ID ;
         private byte[] receiveData = new byte[2048];
         private DatagramSocket socket = null;
 
+        /**
+         * This is what you call to start a new thread running for the file transfur
+         * @param fileName - The file name for conformation, and so we know what to send
+         * @param port - The port the new connection is on
+         */
         public FileMoverTask(String fileName, int port) {
             this.fileName = fileName;
             this.port = port;
@@ -108,35 +108,41 @@ public class Server {
         }
 
         @Override
-        public void run() {
-            System.out.println("LOG: " + ID + " STARTED" );
+        public void run() { System.out.println("LOG: " + ID + " STARTED" );
 
             try  {
                 socket = new DatagramSocket(port);
-                socket.setSoTimeout(10000);
+                socket.setSoTimeout(15000);
+                String message, response;
 
+                // Start listening loop. Resets when a packet is formatted incorrectly
                 while (true) {
-
-                    //************ VVV REPLACE CODE VVV ************
                     DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
                     socket.receive(receivePacket);
+                    message = new String(receivePacket.getData(), 0, receivePacket.getLength()).trim();
+                    String[] split = message.split(" ");
 
-                    // Check packet content
-                    // generate return packet
-                    String response = "testing 123";
+                    // Check the received packet > make response and send it otherwise restart
+                    if (split.length == 7 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("GET") && split[3].equals("START") && split[5].equals("END")) {
+                        int start = Integer.parseInt(split[4]);
+                        int end = Integer.parseInt(split[6]);
 
-                    // Send a packet
+                        //  get the file content and formulate response string else re try
+                        response = " The parts of the file to send back";
+
+                    // Check for close
+                    } else if(split.length == 3 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("CLOSE")){
+                        response = "FILE " + fileName + " CLOSE_OK";
+                    } else continue;
+
+                    // Send
                     DatagramPacket sendPacket = new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort());
                     socket.send(sendPacket);
+                    if (response.contains("CLOSE_OK")) break; // if close then exit the loop
 
-                    //************ ^^^ REPLACE CODE ^^^ ************
-
-                }
-
+                } // Loop until the file is finished
             } catch (IOException e) {
                 System.out.println("ERROR: " + ID + e.getMessage());
-            }finally {
-                if (!socket.isClosed()) socket.close();
             }
             System.out.println("LOG: " + ID + " CLOSED" );
         }
