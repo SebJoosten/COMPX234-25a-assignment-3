@@ -42,7 +42,7 @@ public class Server {
                                 boolean fileExists = true; // Will work this out later placeholder
                                 //************ ^^^ REPLACE CODE ^^^ ************
 
-                                if (fileExists) {
+                                if (!fileExists) {
                                     //************ VVV REPLACE CODE VVV ************
                                     // Replace with file details
                                     // Get file details
@@ -57,8 +57,8 @@ public class Server {
                                         Thread thread = new Thread(new FileMoverTask(fileName, freePort));
                                         thread.start();
                                     } else response = "ERR NO_FREE_PORT";
-                                }
-                            } else response = "ERR NOT_FOUND";
+                                } else response = "ERR NOT_FOUND";
+                            } // Command wrong response = "ERR NOT_PARSEABLE"
                         } // Command wrong response = "ERR NOT_PARSEABLE"
                     } // Split wrong response = "ERR NOT_PARSEABLE"
 
@@ -70,6 +70,7 @@ public class Server {
                 } // Main loop end
             } catch (IOException e) {
                 System.out.println("ERROR: " + e.getMessage());
+                if (socket != null) socket.close();
             } // Sub loop
         } // main loop
     }
