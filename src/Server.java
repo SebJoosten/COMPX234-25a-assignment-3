@@ -42,7 +42,7 @@ public class Server {
                                 boolean fileExists = true; // Will work this out later placeholder
                                 //************ ^^^ REPLACE CODE ^^^ ************
 
-                                if (!fileExists) {
+                                if (fileExists) {
                                     //************ VVV REPLACE CODE VVV ************
                                     // Replace with file details
                                     // Get file details
@@ -128,8 +128,11 @@ public class Server {
                         int start = Integer.parseInt(split[4]);
                         int end = Integer.parseInt(split[6]);
 
+
                         //  get the file content and formulate response string else re try
-                        response = " The parts of the file to send back";
+                        response = "FILE temoprary OK START 12345 END 678910 DATA <encoded_data> ";
+
+
 
                     // Check for close
                     } else if(split.length == 3 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("CLOSE")){
