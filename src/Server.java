@@ -20,48 +20,48 @@ public class Server {
         // MAIN listening loop
         while (true) {
             try {   socket = new DatagramSocket(port);
-                    socket.setSoTimeout(10000);
+                socket.setSoTimeout(10000);
 
-                    // Reserve request Split and parse
-                    DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-                    socket.receive(receivePacket);
-                    String message = new String(receivePacket.getData(), 0, receivePacket.getLength());
-                    String response = "ERR NOT_PARSEABLE";
-                    String[] parts = message.split(" ");
-                    System.out.println("LOG: server received: " + message);
+                // Reserve request Split and parse
+                DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+                socket.receive(receivePacket);
+                String message = new String(receivePacket.getData(), 0, receivePacket.getLength());
+                String response = "ERR NOT_PARSEABLE";
+                String[] parts = message.split(" ");
+                System.out.println("LOG: server received: " + message);
 
-                    // COMMAND OK
-                    if (parts.length == 2 && parts[0].equals("DOWNLOAD")) {
-                        response = "ERR NOT_FOUND";
-                        String fileName = parts[1];
-                        File target = new File(root, fileName);
+                // COMMAND OK
+                if (parts.length == 2 && parts[0].equals("DOWNLOAD")) {
+                    response = "ERR NOT_FOUND";
+                    String fileName = parts[1];
+                    File target = new File(root, fileName);
 
-                        // FILE OK
-                        if (target.exists() && target.isFile()) {
-                            response = "ERR NO_FREE_PORT";
+                    // FILE OK
+                    if (target.exists() && target.isFile()) {
+                        response = "ERR NO_FREE_PORT";
 
-                            // Get free port between 50001 & 51000 and start thread
-                            for (int freePort = 50001; freePort <= 51000; freePort++) {
-                                try (DatagramSocket socketNew = new DatagramSocket(freePort)) {
-                                    response = "OK " + fileName + " SIZE: " + target.length() + " PORT: " + freePort;
-                                    Thread thread = new Thread(new FileMoverTask( freePort, target));
-                                    thread.start();
-                                    break;
-                                } catch (IOException ignored){}
-                            }
+                        // Get free port between 50001 & 51000 and start thread
+                        for (int freePort = 50001; freePort <= 51000; freePort++) {
+                            try (DatagramSocket socketNew = new DatagramSocket(freePort)) {
+                                response = "OK " + fileName + " SIZE: " + target.length() + " PORT: " + freePort;
+                                Thread thread = new Thread(new FileMoverTask( freePort, target));
+                                thread.start();
+                                break;
+                            } catch (IOException ignored){}
+                        }
 
                         // FILE NOT FOUND
-                        } else System.out.println("LOG: FILE NOT FOUND: " + message);
+                    } else System.out.println("LOG: FILE NOT FOUND: " + message);
 
                     // UNKNOWN request
-                    } else System.out.println("LOG: Unknown request: " + message);
+                } else System.out.println("LOG: Unknown request: " + message);
 
-                    // SEND response
-                    Thread.sleep(5);
-                    socket.send(new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort()));
-                    socket.close();
+                // SEND response
+                Thread.sleep(5);
+                socket.send(new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort()));
+                socket.close();
 
-            // CATCH ALL - reset the loop and wait again
+                // CATCH ALL - reset the loop and wait again
             } catch (IOException e) {
                 System.out.println("ERROR: " + e.getMessage());
                 if (socket != null) socket.close();
@@ -94,50 +94,56 @@ public class Server {
         @Override
         public void run() { System.out.println("LOG: " + ID + " STARTED" );
 
+            // Declare as much as we can before going on to the main loops
+            String filename = target.getName(), response = "ERR INVALID_COMMAND";
+            byte[] buffer , receiveData = new byte[2048];
+            Base64.Encoder encoder = Base64.getEncoder();
+            DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+            String[] split;
+
             // TRY set up port and catch for other file issues
-            try  {
-                DatagramSocket newSocket = new DatagramSocket(port);
+            try (
+                    RandomAccessFile openFile = new RandomAccessFile(target, "r");
+                    DatagramSocket newSocket = new DatagramSocket(port)
+            ) {
                 newSocket.setSoTimeout(10000);
-                String message, response;
-                byte[] receiveData = new byte[2048];
-
-                // RECEIVE data request and REPLY
                 while (true) {
-                    DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+
                     newSocket.receive(receivePacket);
-                    message = new String(receivePacket.getData(), 0, receivePacket.getLength()).trim();
-                    String[] split = message.split(" ");
+                    split = new String(receivePacket.getData(), 0, receivePacket.getLength()).trim().split(" ");
 
-                    // IF OK grab the data block
-                    if (split.length == 7 && split[0].equals("FILE") && split[1].equals(target.getName()) && split[2].equals("GET") && split[3].equals("START") && split[5].equals("END")) {
-                        int start = Integer.parseInt(split[4]);
-                        int end = Integer.parseInt(split[6]);
-                        retryCount = 0;
+                    if (split.length == 7 && split[0].equals("FILE") && split[1].equals(filename) && split[2].equals("GET") && split[3].equals("START") && split[5].equals("END")) {
 
-                        RandomAccessFile raf = new RandomAccessFile(target, "r");
-                        raf.seek(start);
-                        int length = end - start;
-                        byte[] buffer = new byte[length];
-                        raf.read(buffer, 0, length);
-                        String encodedData = Base64.getEncoder().encodeToString(buffer);
-                        response = "FILE " + target.getName() + " OK START " + start + " END " + end + " DATA " + encodedData;
+                        long start = Long.parseLong(split[4]);
+                        long end = Long.parseLong(split[6]);
+                        int length = (int)(end - start);
 
+                        if (length > 0 ){
+                            retryCount = 0;
+                            buffer = new byte[length];
+                            openFile.seek(start);
+                            openFile.read(buffer, 0, length);
+                            response = "FILE " + filename + " OK START " + start + " END " + end + " DATA " + encoder.encodeToString(buffer);
+                        }else{
+                            response = "ERR INVALID_COMMAND";
+                            retryCount++;
+                        }
 
-                    // IF CLOSE OR NOT RECOGNISED
-                    } else if(split.length == 3 && split[0].equals("FILE") && split[1].equals(target.getName()) && split[2].equals("CLOSE")){
-                        response = "FILE " + target.getName() + " CLOSE_OK";
+                    } else if (split.length == 3 && split[0].equals("FILE") && split[1].equals(filename) && split[2].equals("CLOSE")) {
+                        response = "FILE " + filename + " CLOSE_OK";
                     } else {
                         response = "ERR INVALID_COMMAND";
                         retryCount++;
                     }
 
-                    // SEND PACKET - CHECK EXIT
-                    DatagramPacket sendPacket = new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort());
-                    newSocket.send(sendPacket);
-                    if (response.contains("CLOSE_OK") || retryCount > 10) break;
+                    // SEND response
+                    newSocket.send(new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort()));
+
+                    // CHECK for close
+                    if (response.contains("CLOSE_OK")) break;
                 }
 
-            // CATCH ALL
+                // CATCH ALL
             } catch (IOException e) { System.out.println("ERROR: " + ID + e.getMessage()); }
             System.out.println("LOG: " + ID + " CLOSED" );
         }
