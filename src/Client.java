@@ -1,11 +1,16 @@
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
-import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Base64;
 
 public class Client {
+    private final int MAX_RETRIES = 10;
 
     public static void main(String[] args) {
         new Client().runClient();
@@ -47,16 +52,19 @@ public class Client {
                     String requestPart = "FILE " + fileName + " GET START " + start + " END " + end;
                     System.out.println("CLIENT connected on port: "  + newPort);
                     retryCount = 0;
+                    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
                     // START DOWNLOAD LOOP - send data request
                     while(retryCount < 10){
 
-                        // IF FILE COMPLETE --------------- NEEDS CLOSING CONDICTION
+                        // IF FILE COMPLETE - Close condiction
                         if(end > size) {
                             requestPart = "FILE " + fileName + " CLOSE";
                             System.out.print("\nDOWNLOAD " + fileName +  " COMPLETE");
+                            File root = new File(System.getProperty("user.dir"));
+                            Path filePath = root.toPath().resolve("test" + fileName);
+                            Files.write(filePath, outputStream.toByteArray());
                         }
-
 
                         sendPacket = new DatagramPacket(requestPart.getBytes(), requestPart.length(), serverAddress, newPort);
                         socket.send(sendPacket);
@@ -70,19 +78,23 @@ public class Client {
                         // CHECK DATA
                         if (split.length >= 8 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("OK") ) {
 
+                            // CHECK Bit positions and reconstruct data
                             if(start == Integer.parseInt(split[4]) && end == Integer.parseInt(split[6])){
-                                split = message.split(" ", -1);;
-                                String data = String.join(" ", Arrays.copyOfRange(split, 8, split.length));
 
-                                System.out.println(data);
+                                String encodedData = String.join(" ", Arrays.copyOfRange(message.split(" ", -1), 8, split.length));
+                                byte[] decodedChunk = Base64.getDecoder().decode(encodedData);
+                                outputStream.write(decodedChunk);
+
+                                // Increment to next chunk
                                 retryCount = 0;
                                 start = end;
                                 end += 1000;
                                 requestPart = "FILE " + fileName + " GET START " + start + " END " + end;
+
                             } else {
-                            System.out.println("<-- HALT!!! \nERROR: parsing GOT -> " + split[4] + " & " + split[6] + " Expecting " + start + " & " + end);
-                            retryCount++;
-                            continue;
+                                System.out.println("<-- HALT!!! \nERROR: parsing GOT -> " + split[4] + " & " + split[6] + " Expecting " + start + " & " + end);
+                                retryCount++;
+                                continue;
                             }
 
                             // Little percentage print out
@@ -97,12 +109,12 @@ public class Client {
                                     bar.append(" ");
                                 }
                             }
-                            bar.append("]");
-                            System.out.print("\rDOWNLOADING FILE " + fileName + " " + percentage + " % " + bar.toString() );
+                            bar.append("] ");
+                            System.out.print("\rDOWNLOADING FILE " + fileName + " " + bar.toString() + percentage + " % " );
 
                         // FILE CLOSE OK - Throw to exit
                         } else if (split.length == 3 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("CLOSE_OK")) {
-                            retryCount = 10;
+                            retryCount = MAX_RETRIES;
                             throw new IOException("FILE CLOSE OK ");
                         } else System.out.println("\nERROR: parsing GOT -- > " + message + " ON PORT: " + newPort);
 
@@ -114,17 +126,17 @@ public class Client {
                 // FILE NOT FOUND - Throw to exit
                 } else if (split.length == 2 && split[0].equals("ERR") && split[1].equals("NOT_FOUND") ) {
                     socket.close();
-                    retryCount = 10;
+                    retryCount = MAX_RETRIES;
                     throw new IOException("FILE NOT FOUND ");
                 }
 
             // CATCH INITIAL parsing and IO errors - check for EXIT
             } catch (IOException e) {
-                System.out.println(e.getMessage() + " " + retryCount + "/10" );
+                System.out.println(e.getMessage() + " " + retryCount + "/" + MAX_RETRIES);
                 retryCount++;
-                if (retryCount >= 10) {
-                    System.out.println(e.getMessage() + " EXITING ......");
-                    System.exit(0);
+                if (retryCount >= MAX_RETRIES) {
+                    System.err.println(e.getMessage() + " EXITING ......");
+                    System.exit(1);
                 }
             }
         }

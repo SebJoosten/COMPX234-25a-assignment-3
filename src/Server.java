@@ -2,7 +2,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.*;
-import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 public class Server {
 
@@ -46,7 +46,6 @@ public class Server {
                                     response = "OK " + fileName + " SIZE: " + target.length() + " PORT: " + freePort;
                                     Thread thread = new Thread(new FileMoverTask( freePort, target));
                                     thread.start();
-                                    Thread.sleep(5);
                                     break;
                                 } catch (IOException ignored){}
                             }
@@ -58,6 +57,7 @@ public class Server {
                     } else System.out.println("LOG: Unknown request: " + message);
 
                     // SEND response
+                    Thread.sleep(5);
                     socket.send(new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort()));
                     socket.close();
 
@@ -114,13 +114,14 @@ public class Server {
                         int end = Integer.parseInt(split[6]);
                         retryCount = 0;
 
-                        // GET the next chunk - Encode and prep to send
                         RandomAccessFile raf = new RandomAccessFile(target, "r");
                         raf.seek(start);
                         int length = end - start;
                         byte[] buffer = new byte[length];
-                        int bytesRead = raf.read(buffer, 0, length);
-                        response = "FILE " + target.getName() + " OK START " + start + " END " + end + " DATA " + new String(buffer, 0, bytesRead, StandardCharsets.US_ASCII);
+                        raf.read(buffer, 0, length);
+                        String encodedData = Base64.getEncoder().encodeToString(buffer);
+                        response = "FILE " + target.getName() + " OK START " + start + " END " + end + " DATA " + encodedData;
+
 
                     // IF CLOSE OR NOT RECOGNISED
                     } else if(split.length == 3 && split[0].equals("FILE") && split[1].equals(target.getName()) && split[2].equals("CLOSE")){
