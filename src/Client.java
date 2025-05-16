@@ -3,6 +3,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.util.Arrays;
 
 public class Client {
 
@@ -22,7 +23,7 @@ public class Client {
 
             // TRY and make socket and parse response
             try (DatagramSocket socket = new DatagramSocket()) {
-                socket.setSoTimeout(10000);
+                socket.setSoTimeout(1000);
                 InetAddress serverAddress = InetAddress.getByName("localhost");
 
                 // INITIAL request
@@ -67,10 +68,13 @@ public class Client {
                         split = message.split(" ");
 
                         // CHECK DATA
-                        if (split.length == 9 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("OK") ) {
+                        if (split.length >= 8 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("OK") ) {
 
                             if(start == Integer.parseInt(split[4]) && end == Integer.parseInt(split[6])){
-                                String data = split[8];
+                                split = message.split(" ", -1);;
+                                String data = String.join(" ", Arrays.copyOfRange(split, 8, split.length));
+
+                                System.out.println(data);
                                 retryCount = 0;
                                 start = end;
                                 end += 1000;

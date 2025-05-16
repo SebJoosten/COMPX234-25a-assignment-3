@@ -1,6 +1,8 @@
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
 
 public class Server {
 
@@ -13,8 +15,9 @@ public class Server {
         DatagramSocket socket = null;
         int port = 51234;
         byte[] receiveData = new byte[2048];
+        File root = new File(System.getProperty("user.dir"));
 
-
+        // MAIN listening loop
         while (true) {
             try {   socket = new DatagramSocket(port);
                     socket.setSoTimeout(10000);
@@ -25,57 +28,48 @@ public class Server {
                     String message = new String(receivePacket.getData(), 0, receivePacket.getLength());
                     String response = "ERR NOT_PARSEABLE";
                     String[] parts = message.split(" ");
+                    System.out.println("LOG: server received: " + message);
 
                     // COMMAND OK
                     if (parts.length == 2 && parts[0].equals("DOWNLOAD")) {
+                        response = "ERR NOT_FOUND";
                         String fileName = parts[1];
-
-                        File root = new File(System.getProperty("user.dir"));
                         File target = new File(root, fileName);
-                        System.out.println("Downloading " + fileName + " to " + target.getAbsolutePath() + "  " + target.exists());
 
                         // FILE OK
                         if (target.exists() && target.isFile()) {
+                            response = "ERR NO_FREE_PORT";
 
-                            long fileSize = target.length();
-                            int freePort = portFinderUDPPort();
+                            // Get free port between 50001 & 51000 and start thread
+                            for (int freePort = 50001; freePort <= 51000; freePort++) {
+                                try (DatagramSocket socketNew = new DatagramSocket(freePort)) {
+                                    response = "OK " + fileName + " SIZE: " + target.length() + " PORT: " + freePort;
+                                    Thread thread = new Thread(new FileMoverTask( freePort, target));
+                                    thread.start();
+                                    Thread.sleep(5);
+                                    break;
+                                } catch (IOException ignored){}
+                            }
 
-                            // PORT OK
-                            if (freePort != -1) {
-                                response = "OK " + fileName + " SIZE " + fileSize + " PORT " + freePort;
-                                Thread thread = new Thread(new FileMoverTask(fileName, freePort));
-                                thread.start();
+                        // FILE NOT FOUND
+                        } else System.out.println("LOG: FILE NOT FOUND: " + message);
 
-                            } else response = "ERR NO_FREE_PORT";
-                        } else response = "ERR NOT_FOUND";
-                    }
+                    // UNKNOWN request
+                    } else System.out.println("LOG: Unknown request: " + message);
 
-                    // Tiny delay then send a packet this is so the thread has time to start
-                    Thread.sleep(5);
-                    DatagramPacket sendPacket = new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort());
-                    socket.send(sendPacket);
+                    // SEND response
+                    socket.send(new DatagramPacket(response.getBytes(), response.length(), receivePacket.getAddress(), receivePacket.getPort()));
                     socket.close();
 
+            // CATCH ALL - reset the loop and wait again
             } catch (IOException e) {
                 System.out.println("ERROR: " + e.getMessage());
                 if (socket != null) socket.close();
             } catch (InterruptedException e) {
+                System.out.println("ERROR: " + e.getMessage());
                 throw new RuntimeException(e);
             }
         }
-    }
-
-    /**
-     * Free Port Finder quickly looks for a free port.
-     * @return - A free port hopefully
-     */
-    public int portFinderUDPPort() {
-        for (int port = 50001; port <= 51000; port++) {
-            try (DatagramSocket socket = new DatagramSocket(port)) {
-                return port;
-            } catch (IOException ignored) {}
-        }
-        return -1; // Base case no free port
     }
 
     /**
@@ -83,29 +77,29 @@ public class Server {
      */
     private class FileMoverTask implements Runnable {
         private int port , retryCount = 0;
-        private String fileName , ID ;
-        private byte[] receiveData = new byte[2048];
-        private DatagramSocket newSocket = null;
+        private String ID;
+        private File target;
 
         /**
-         * This is what you call to start a new thread running for the file transfur
-         * @param fileName - The file name for conformation, and so we know what to send
-         * @param port - The port the new connection is on
+         * This is to build and launch a file mover - a thread that handles the file transfur
+         * @param port - The port you're going to be listening on
+         * @param target - The target file you wish to send
          */
-        public FileMoverTask(String fileName, int port) {
-            this.fileName = fileName;
+        public FileMoverTask(int port , File target) {
+            this.target = target;
             this.port = port;
-            this.ID = "FileMoverTask " + fileName + " port: " + port;
+            this.ID = "FileMoverTask " + target.getName() + " port: " + port;
         }
 
         @Override
         public void run() { System.out.println("LOG: " + ID + " STARTED" );
+
+            // TRY set up port and catch for other file issues
             try  {
-                newSocket = new DatagramSocket(port);
+                DatagramSocket newSocket = new DatagramSocket(port);
                 newSocket.setSoTimeout(10000);
                 String message, response;
-
-                boolean test = false;
+                byte[] receiveData = new byte[2048];
 
                 // RECEIVE data request and REPLY
                 while (true) {
@@ -115,24 +109,22 @@ public class Server {
                     String[] split = message.split(" ");
 
                     // IF OK grab the data block
-                    if (split.length == 7 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("GET") && split[3].equals("START") && split[5].equals("END")) {
+                    if (split.length == 7 && split[0].equals("FILE") && split[1].equals(target.getName()) && split[2].equals("GET") && split[3].equals("START") && split[5].equals("END")) {
                         int start = Integer.parseInt(split[4]);
                         int end = Integer.parseInt(split[6]);
                         retryCount = 0;
 
-                        if (start > 600000 && test == false) {
-                            start = 600001;
-                            test = true;
-                        }
-
-                        //  get the file content and formulate response string else re try
-                        response = "FILE " + fileName + " OK START " + start + " END " + end + " DATA <encoded_data> ";
-
-
+                        // GET the next chunk - Encode and prep to send
+                        RandomAccessFile raf = new RandomAccessFile(target, "r");
+                        raf.seek(start);
+                        int length = end - start;
+                        byte[] buffer = new byte[length];
+                        int bytesRead = raf.read(buffer, 0, length);
+                        response = "FILE " + target.getName() + " OK START " + start + " END " + end + " DATA " + new String(buffer, 0, bytesRead, StandardCharsets.US_ASCII);
 
                     // IF CLOSE OR NOT RECOGNISED
-                    } else if(split.length == 3 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("CLOSE")){
-                        response = "FILE " + fileName + " CLOSE_OK";
+                    } else if(split.length == 3 && split[0].equals("FILE") && split[1].equals(target.getName()) && split[2].equals("CLOSE")){
+                        response = "FILE " + target.getName() + " CLOSE_OK";
                     } else {
                         response = "ERR INVALID_COMMAND";
                         retryCount++;
@@ -144,6 +136,7 @@ public class Server {
                     if (response.contains("CLOSE_OK") || retryCount > 10) break;
                 }
 
+            // CATCH ALL
             } catch (IOException e) { System.out.println("ERROR: " + ID + e.getMessage()); }
             System.out.println("LOG: " + ID + " CLOSED" );
         }
