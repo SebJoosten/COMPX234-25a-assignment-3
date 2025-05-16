@@ -1,0 +1,12 @@
+Simple graph
+The graph above is a simple graph showing 4 vertices, with simple edges between the vertices. The matrix contains a 1 to indicate that two vertices are connected and a 0 to indicate that they are not connected.
+
+For example, row A column B is set to 1 because there is an edge between vertices A and B. But row B column D is set to 0 because there isn't an edge between vertices B and D.
+
+For brevity, we will write row A column B of the matrix as M[A, B].
+
+It is interesting to note that all elements on the leading diagonal (shaded yellow) are zero because no vertex is connected to itself. For example M[A, A] is set to 0 because A is not connected to itself.
+
+Notice also that the matrix is symmetrical about the leading diagonal, i.e. the area shaded in blue is a reflection of the area shaded in green. This is because, in a simple graph, every edge works in both directions. For example, if A is connected to B, this means that B is connected to A (by the same edge).
+
+Simple grap

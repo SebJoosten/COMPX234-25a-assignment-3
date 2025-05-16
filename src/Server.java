@@ -1,3 +1,4 @@
+import java.io.File;
 import java.io.IOException;
 import java.net.*;
 
@@ -12,6 +13,7 @@ public class Server {
         DatagramSocket socket = null;
         int port = 51234;
         byte[] receiveData = new byte[2048];
+
 
         while (true) {
             try {   socket = new DatagramSocket(port);
@@ -28,12 +30,14 @@ public class Server {
                     if (parts.length == 2 && parts[0].equals("DOWNLOAD")) {
                         String fileName = parts[1];
 
-                        // CHECK FOR FILE HERE
+                        File root = new File(System.getProperty("user.dir"));
+                        File target = new File(root, fileName);
+                        System.out.println("Downloading " + fileName + " to " + target.getAbsolutePath() + "  " + target.exists());
 
                         // FILE OK
-                        if (!fileName.isEmpty()) {
+                        if (target.exists() && target.isFile()) {
 
-                            long fileSize = 123456;
+                            long fileSize = target.length();
                             int freePort = portFinderUDPPort();
 
                             // PORT OK
@@ -101,6 +105,8 @@ public class Server {
                 newSocket.setSoTimeout(10000);
                 String message, response;
 
+                boolean test = false;
+
                 // RECEIVE data request and REPLY
                 while (true) {
                     DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
@@ -114,9 +120,13 @@ public class Server {
                         int end = Integer.parseInt(split[6]);
                         retryCount = 0;
 
+                        if (start > 600000 && test == false) {
+                            start = 600001;
+                            test = true;
+                        }
 
                         //  get the file content and formulate response string else re try
-                        response = "FILE temoprary OK START 12345 END 678910 DATA <encoded_data> ";
+                        response = "FILE " + fileName + " OK START " + start + " END " + end + " DATA <encoded_data> ";
 
 
 

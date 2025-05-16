@@ -17,7 +17,7 @@ public class Client {
         while(true) {
             int port = 51234;
             byte[] buffer = new byte[2048];
-            String fileName = "temoprary";
+            String fileName = "959309.png";
             DatagramSocket receiver = null;
 
             // TRY and make socket and parse response
@@ -40,15 +40,23 @@ public class Client {
                 // RESPONSE OK
                 if (split.length == 6 && split[0].equals("OK") && split[1].equals(fileName) ) {
 
-                    long current = 0, size = Long.parseLong(split[3]);
+                    long start = 0 , end = 999, size = Long.parseLong(split[3]);
                     int  newPort = Integer.parseInt(split[5]);
                     System.out.println("File transfer "+ fileName + " started on port " + newPort);
-                    String requestPart = "FILE " + fileName + " GET START " + current + " END " + (current + 1000);
+                    String requestPart = "FILE " + fileName + " GET START " + start + " END " + end;
                     System.out.println("CLIENT connected on port: "  + newPort);
                     retryCount = 0;
 
                     // START DOWNLOAD LOOP - send data request
                     while(retryCount < 10){
+
+                        // IF FILE COMPLETE --------------- NEEDS CLOSING CONDICTION
+                        if(end > size) {
+                            requestPart = "FILE " + fileName + " CLOSE";
+                            System.out.print("\nDOWNLOAD " + fileName +  " COMPLETE");
+                        }
+
+
                         sendPacket = new DatagramPacket(requestPart.getBytes(), requestPart.length(), serverAddress, newPort);
                         socket.send(sendPacket);
 
@@ -60,32 +68,39 @@ public class Client {
 
                         // CHECK DATA
                         if (split.length == 9 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("OK") ) {
-                            String data = "";
-                            int start = 0, end = 0;
-                            try {
-                                start = Integer.parseInt(split[4]);
-                                end = Integer.parseInt(split[6]);
-                                data = split[8];
+
+                            if(start == Integer.parseInt(split[4]) && end == Integer.parseInt(split[6])){
+                                String data = split[8];
                                 retryCount = 0;
-
-                                // if ok request next part of file
-
-
-                            // CATCH RESPONSE data not parsable - print message - inc retryCount - retry
-                            } catch (NumberFormatException e) {
-                                System.out.println("ERROR: parsing INT GOT --> " + message + " ON PORT: " + newPort);
-                                retryCount++;
-                                continue;
+                                start = end;
+                                end += 1000;
+                                requestPart = "FILE " + fileName + " GET START " + start + " END " + end;
+                            } else {
+                            System.out.println("<-- HALT!!! \nERROR: parsing GOT -> " + split[4] + " & " + split[6] + " Expecting " + start + " & " + end);
+                            retryCount++;
+                            continue;
                             }
 
-                            // IF FILE COMPLETE --------------- NEEDS CLOSING CONDICTION
-                            if(current < size) requestPart = "FILE " + fileName + " CLOSE";
+                            // Little percentage print out
+                            double percentage = (double) end / size * 100;
+                            percentage = Math.floor(percentage * 100) / 100;
+                            StringBuilder bar = new StringBuilder("[");
+                            int filledBars = (int) (percentage / 100 * 30 );
+                            for (int i = 0; i < 30; i++) {
+                                if (i < filledBars) {
+                                    bar.append("█");
+                                } else {
+                                    bar.append(" ");
+                                }
+                            }
+                            bar.append("]");
+                            System.out.print("\rDOWNLOADING FILE " + fileName + " " + percentage + " % " + bar.toString() );
 
                         // FILE CLOSE OK - Throw to exit
                         } else if (split.length == 3 && split[0].equals("FILE") && split[1].equals(fileName) && split[2].equals("CLOSE_OK")) {
                             retryCount = 10;
                             throw new IOException("FILE CLOSE OK ");
-                        } else System.out.println("ERROR: parsing GOT -- > " + message + " ON PORT: " + newPort);
+                        } else System.out.println("\nERROR: parsing GOT -- > " + message + " ON PORT: " + newPort);
 
                         retryCount ++;
 
