@@ -2,9 +2,13 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.*;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 
 public class Server {
+
+    boolean downloading = false;
 
     public static void main(String[] args) {
         Server server = new Server();
@@ -15,12 +19,21 @@ public class Server {
         DatagramSocket socket = null;
         int port = 51234;
         byte[] receiveData = new byte[2048];
+        List<Thread> transfers = new ArrayList<>();
         File root = new File(System.getProperty("user.dir"));
+        ListningBar listening = new ListningBar();
+        Thread activityBar = new Thread(listening);
+        activityBar.start();
+
+
 
         // MAIN listening loop
         while (true) {
             try {   socket = new DatagramSocket(port);
-                socket.setSoTimeout(10000);
+                socket.setSoTimeout(5000);
+
+                transfers.removeIf(t -> !t.isAlive());
+                downloading = !transfers.isEmpty();
 
                 // Reserve request Split and parse
                 DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
@@ -32,6 +45,7 @@ public class Server {
 
                 // COMMAND OK
                 if (parts.length == 2 && parts[0].equals("DOWNLOAD")) {
+                    downloading = true;
                     response = "ERR NOT_FOUND";
                     String fileName = parts[1];
                     File target = new File(root, fileName);
@@ -44,8 +58,9 @@ public class Server {
                         for (int freePort = 50001; freePort <= 51000; freePort++) {
                             try (DatagramSocket socketNew = new DatagramSocket(freePort)) {
                                 response = "OK " + fileName + " SIZE: " + target.length() + " PORT: " + freePort;
-                                Thread thread = new Thread(new FileMoverTask( freePort, target));
-                                thread.start();
+                                Thread transfer = new Thread(new FileMoverTask( freePort, target));
+                                transfers.add(transfer);
+                                transfer.start();
                                 break;
                             } catch (IOException ignored){}
                         }
@@ -63,7 +78,7 @@ public class Server {
 
                 // CATCH ALL - reset the loop and wait again
             } catch (IOException e) {
-                System.out.println("ERROR: " + e.getMessage());
+                System.out.println("Server LOG: " + e.getMessage());
                 if (socket != null) socket.close();
             } catch (InterruptedException e) {
                 System.out.println("ERROR: " + e.getMessage());
@@ -148,4 +163,58 @@ public class Server {
             System.out.println("LOG: " + ID + " CLOSED" );
         }
     }
+
+
+    /**
+     * Animated status bar tells you if the server is up or not basically
+     */
+    public class ListningBar extends Thread {
+
+        @Override
+        public void run() {
+            int filledBars = 0;
+            int direction = 1;
+            String gap = " ";
+
+            while (!Thread.currentThread().isInterrupted()) {
+                if (!downloading) {
+                    StringBuilder bar = new StringBuilder("[");
+                    for (int i = 0; i <= 20; i++) {
+                        if (i == filledBars) {
+                            bar.append("█");
+                        } else {
+                            bar.append(gap);
+                        }
+                    }
+                    bar.append("] ");
+
+                    filledBars += direction;
+                    if (filledBars == 20) {
+                        direction *= -1;
+                    } else if (filledBars == 0) {
+                        direction *= -1;
+                    }
+                    System.out.print("\r" + bar + " ");
+
+                }else{
+                    if (direction == 1){
+                        System.out.print("\r[ > > > > > > > > > > ] ");
+                        direction *= -1;
+                    }else {
+                        System.out.print("\r[> > > > > > > > > > >] ");
+                        direction *= -1;
+                    }
+                }
+
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
+    }
+
+
+
 }

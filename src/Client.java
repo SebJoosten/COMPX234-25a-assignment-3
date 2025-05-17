@@ -1,4 +1,3 @@
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -24,7 +23,6 @@ public class Client {
             int port = 51234;
             byte[] buffer = new byte[2048];
             String fileName = "959309.png";
-            DatagramSocket receiver = null;
 
             // TRY and make socket and parse response
             try (DatagramSocket socket = new DatagramSocket()) {
@@ -54,19 +52,21 @@ public class Client {
                     File partialFile = new File(filePath.toString());
                     Base64.Decoder decoder = Base64.getDecoder();
                     String encodedData;
+                    String requestPart = "FILE " + fileName + " GET START " + start + " END " + end;
 
                     // RESUME function - If the file exists in part, continue from that part
                     if (partialFile.exists()) {
                         start = partialFile.length();
                         if (start >= size) {
                             retryCount = MAX_RETRIES;
-                            throw new IOException("FILE Already exists - Nothing to do");
+                            requestPart = "FILE " + fileName + " CLOSE";
+                        } else {
+                            end = Math.min(start + 1000, size);
+                            System.out.println("FILE Download resuming from byte " + start);
+                            requestPart = "FILE " + fileName + " GET START " + start + " END " + end;
                         }
-                        end = Math.min(start + 1000, size);
-                        System.out.println("FILE Download resuming from byte "  + start);
                     }
 
-                    String requestPart = "FILE " + fileName + " GET START " + start + " END " + end;
                     FileOutputStream outputStream = new FileOutputStream(partialFile, true);
                     retryCount = 0;
 
